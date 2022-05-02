@@ -1,4 +1,5 @@
 #' Monte Carlo Simulations in R
+library(ggplot2)
 
 #' Approximating Pi
 #' inspiration: https://www.countbayesie.com/blog/2015/3/3/6-amazing-trick-with-monte-carlo-simulations
@@ -63,4 +64,32 @@ sim_multiple = replicate(n = 1000, expr =  pop_sim(nt = 100,
                                                    u = 0.08,
                                                    initial_size = 1000)
 )
+
+
+
+sim_multiple = as.data.frame(sim_multiple) ##convert to dataframe before ggplot
+sim_multiple$index = 1:nrow(sim_multiple)  ##add row numbers = years
+  
+library(ggplot2)
+p = ggplot(data = sim_multiple)
+for (i in 1:100){ ##iteratively add lines from each simulation run
+  p = p + geom_line(mapping = aes_string(x = "index", y = sim_multiple[,i]), 
+                 alpha = 0.3)
+}
+
+p + labs(title = "Monte Carlo Population Simulation",
+         x = "year", y = "population size") +
+    coord_cartesian(ylim = c(0, 10000)) +
+    theme_minimal() +
+    ##plot mean path 
+    geom_line(aes(x = index, y = rowMeans(sim_multiple[,-index])),
+              color = "red") + 
+    annotate("text", x = 75, y = 4500, label = "Average Path",
+             color = 'red', fontface = 2)
+  
+
+
+
+
+
 
