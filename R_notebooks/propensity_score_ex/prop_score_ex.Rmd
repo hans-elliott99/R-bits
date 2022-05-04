@@ -1,0 +1,193 @@
+---
+title: "Propensity Score Matching Tutorial"
+author: "Hans Elliott"
+date: "5/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Propensity Score Matching tutorial:**    [](https://sejdemyr.github.io/r-tutorials/statistics/tutorial8.html)  
+This notebook pulls from this nice tutorial from Netflix data scientist [Simon Ejdemyr](https://sejdemyr.github.io/), and elaborates by developing a more elaborate model to estimate propensity scores and trying multiple matching algorithms.  
+
+```{r}
+library(pacman)
+p_load(here,     ##for loading data
+       MatchIt,  ##for 
+       fixest, broom, ##for regression and tidy results
+       ggplot2, kableExtra, ##for plots and tables
+       dplyr, data.table ##for general manipulation
+       )
+
+```
+
+Data from the Early Childhood Longitudinal Study (ECLS), for the United States. The tutorial focuses on the effect of going to Catholic school, as opposed to public school, on student achievement. (See propensity_score_matching_ex/data-processing.R) for data processing).  
+
+```{r}
+##Data
+ecls = here("R_notebooks/propensity_score_matching_ex", "ecls-processed.csv") %>%
+        fread()
+dim(ecls); names(ecls)
+```
+
+
+
+
+## Analyzing Pure Difference in Means
+We start by looking at the raw difference in means between students who attended catholic school and those who did not. We see that roughly 16% of students in the ECLS attended catholic school. The raw difference in mean math score suggests that attending catholic school led to ~20% of a standard deviation increase in math test scores. (Of course, this is a biased estimate which does not describe a causal relationship, but this is what out "naive" analysis suggests.)  
+
+```{r}
+ecls[,
+     .(n_students = .N, 
+       mean_math = mean(c5r2mtsc_std)),
+     by = .(catholic)] %>%
+   .[,
+     .(catholic=catholic,n_students=n_students, mean_math_score=mean_math,
+       std_error = sd(ecls$c5r2mtsc_std) / sqrt(n_students))]
+
+```
+We can also test the statistical significance of the difference of means using a t-test. We get a small p-value, indicating statistical significance.  
+
+```{r}
+t.test(ecls$c5r2mtsc_std ~ ecls$catholic)
+
+```
+
+
+We could also just run a simple regression:
+```{r}
+naive_reg = lm(c5r2mtsc_std ~ catholic, data = ecls)
+tidy(naive_reg)
+```
+
+
+
+Now we'll look at the difference in means for some example covariates. This will help provide evidence as to why the naive difference in means is not a true effect - that is, it will reveal that we have some confounding variables biasing the results. This is essentially a balance test (as in a RCT) where `catholic` is our treatment variable (which, as we see below, is far from randomly assigned). 
+From the tutorial:
+- `race_white`: Is the student white (1) or not (0)?  
+- `p5hmage`: Mother’s age  
+- `w3income`: Family income  
+- `p5numpla`: Number of places the student has lived for at least 4 months  
+- `w3momed_hsb`: Is the mother’s education level high-school or below (1) or some college or more (0)?  
+
+In the tutorial, the author does a bunch of t tests (like we did above), but I'll take advantage of `fixest::feols`'s ability to take multiple outcome variables in one formula.  
+We can see that _all_ of these covariates are significantly correlated with `catholic`, demonstrating selection bias.   
+
+```{r}
+# library(fixest)
+ecls_cov = c('race_white', 'p5hmage', 'w3income', 'p5numpla', 'w3momed_hsb')
+
+cov_balance = fixest::feols(
+                    c(race_white, p5hmage, w3income, p5numpla, w3momed_hsb) ~ 
+                                catholic, data = ecls)
+
+cov_balance
+```
+
+
+## Propensity Score Estimation
+Estimate the propensity score by running a logit model, with the treatment status (a binary variable) as the dependent variable. We also include any covariate related to both treatment assignment and potential outcomes (ie, confounders).    
+I write the formula in an easily modifiable format so I can experiment with different covariates. Family = "binomial" links to a logit model,   
+
+```{r, warning=FALSE, message=FALSE}
+ecls_cov = c('race_white', 'p5hmage', 'w3income', 'p5numpla', 'w3momed_hsb')
+
+prop_score_formula = paste("catholic", "~", paste(ecls_cov, collapse = " + "))
+
+ps_mod = glm(as.formula(prop_score_formula),
+              family = "binomial", data = ecls)
+
+```
+Now we estimate the propensity score for each student (observation) in the data. This is just the predicted probability of being treated, given the estimated model's parameters. 
+We use predict with type = "response" so that the output is at the level of the response variable (a predicted probability between 0 and 1).
+```{r}
+ps_df = data.frame(prop_score = predict(ps_mod, type = "response"),
+                   catholic = ps_mod$model$catholic) 
+  #(extract observations used in model, so obs. with missing values get dropped)
+
+head(ps_df)
+```
+
+
+
+
+
+## Examining Region of Common Support
+In addition to the Conditional Independence Assumption, a key assumption in matching methods is the Common Support, or Overlap, Assumption. In order for matching methods to work, we need to be able to estimate treated vs untreated differences for all values of X (the covariates). With propensity score matching, this is simplified since our covariates are essentially collapsed into a single covariate - the propensity score. We can inspect visually to see if individuals exist at each of the (bins of) propensity score levels.   
+
+```{r}
+##Create histogram
+ps_df %>%
+  mutate(catholic = ifelse(catholic == 1, "Catholic", "Public")) %>%
+  ggplot(aes(x = prop_score)) + 
+    geom_histogram(color = "white") +
+    facet_wrap(~catholic) +
+    labs(title = "School Type Attended:", 
+         x = "Probability of Going to Catholic School (Propensity Score)") +
+    theme_minimal()
+  
+  
+```
+
+We can see that we have overlap in most of these bins.  
+
+## The Matching Algorithm
+We use a matching algorithm from the `matchit` package which finds pairs of observations with very similar propensity scores but different treatment statuses. 
+`matchit` estimates the propensity scores itself, so we just need to provide the right formula.
+
+```{r}
+##remove missing values, which matchit does not accept
+ecls_complete = ecls %>% 
+  select(c5r2mtsc_std, any_of(ecls_cov), catholic) %>%
+  na.omit()
+
+##model using nearest neighbors matching algorithm
+mod_match = MatchIt::matchit(as.formula(prop_score_formula), ##from above
+                             method = "nearest", ##use nearest neighbors method
+                             data = ecls_complete)
+
+#summary(mod_match)
+plot(mod_match)
+```
+
+
+
+
+```{r}
+## create dataframe with only the matched obs
+ecls_matched = MatchIt::match.data(mod_match)
+dim(ecls_matched); head(ecls_matched)
+```
+
+
+# Examining covariate balance in the matched sample
+### 4.3 Average absolute standardized difference
+
+The tutorial proposes a formula for measuring the average imbalance in covariate values in the matched sample. 
+
+
+
+```{r}
+match_summary = summary(mod_match)$sum.matched
+
+
+
+```
+
+
+
+
+Kable table example for end
+atet_dat %>%
+  kbl(caption = "ITT and ATET Effects of OHP Lottery on Health Outcomes",
+      ) %>%
+  kable_styling() %>%
+  add_footnote("ATET = ITT/Compliance Rate; Compliance Rate = 0.254") %>%
+  add_footnote("*p<0.1; **p<0.05; ***p<0.01")
+
+
+
+
+
