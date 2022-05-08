@@ -6,7 +6,9 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
 ```
 
 **Propensity Score Matching tutorial:**    [](https://sejdemyr.github.io/r-tutorials/statistics/tutorial8.html)  
@@ -27,7 +29,7 @@ Data from the Early Childhood Longitudinal Study (ECLS), for the United States. 
 
 ```{r}
 ##Data
-ecls = here("R_notebooks/propensity_score_matching_ex", "ecls-processed.csv") %>%
+ecls = here("R_notebooks/propensity_score_ex", "ecls-processed.csv") %>%
         fread()
 dim(ecls); names(ecls)
 ```
@@ -148,7 +150,7 @@ mod_match = MatchIt::matchit(as.formula(prop_score_formula), ##from above
                              method = "nearest", ##use nearest neighbors method
                              data = ecls_complete)
 
-#summary(mod_match)
+mod_match
 plot(mod_match)
 ```
 
@@ -156,17 +158,65 @@ plot(mod_match)
 
 
 ```{r}
-## create dataframe with only the matched obs
+## create dataframe with only the matched obs (note, 'distance' = prop. score)
 ecls_matched = MatchIt::match.data(mod_match)
 dim(ecls_matched); head(ecls_matched)
 ```
 
 
 # Examining covariate balance in the matched sample
+## Visually
+If our treatment and control groups (catholic vs public school) are balanced, then when we plot the covariates alongside the propensity score, the means should be practically identical. Since there are a lot of observations at each interval, a loess smoother will help visualize the covariate balance.
+
+```{r}
+fn_plot_balances = function(df, variable){
+  df$variable = df %>% select(variable)
+
+  y_lims = c(min(df$variable), max(df$variable))
+  
+  ggplot(data = df, 
+         aes(x = distance, y = variable, 
+             color = as.factor(catholic))) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "loess", se  = F) +
+    ylim(y_lims) +
+    ylab(variable) + xlab("Propensity Score") +
+    labs(color = "Catholic") +
+    theme_minimal() 
+
+}
+
+
+library(gridExtra)
+grid.arrange(
+  fn_plot_balances(ecls_matched, "c5r2mtsc_std"), 
+  fn_plot_balances(ecls_matched, "race_white")+theme(legend.position = "none"),
+  fn_plot_balances(ecls_matched, "p5hmage"),
+  fn_plot_balances(ecls_matched, "w3income")+theme(legend.position = "none"),
+  fn_plot_balances(ecls_matched, "p5numpla"),
+  fn_plot_balances(ecls_matched, "w3momed_hsb")+theme(legend.position = "none"),
+    nrow = 3, widths = c(1, 0.8)
+)
+
+```
+
+
+## Through difference in means
+As before, we can compare the covariate means of the treatment/control groups and determine if there are statistically significant differences. We can see that for all variables but `c5r2mtsc_std` (a standardized math score), there is no statistically significant difference between the treatment and control group mean. For `c5r2mtsc_std`, catholic school students' mean score is -0.15 standard deviations lower than the public school students' mean. 
+
+```{r}
+ps_balance = fixest::feols(
+       c(c5r2mtsc_std, race_white, p5hmage, w3income, p5numpla, w3momed_hsb) ~ 
+                                catholic, data = ecls_matched)
+
+
+ps_balance
+```
+
+
 ### 4.3 Average absolute standardized difference
 
 The tutorial proposes a formula for measuring the average imbalance in covariate values in the matched sample. 
-
 
 
 ```{r}
