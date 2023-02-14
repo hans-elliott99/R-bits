@@ -1,19 +1,7 @@
----
-title: "Space Curves"
-format: gfm
-editor: visual
-echo: true
----
+Space Curves
+================
 
-```{r}
-#| echo: false
-#| message: false
-#| warning: false
-if (!require("pacman")) install.packages("pacman")
-pacman::p_load(plotly)
-```
-
-```{r}
+``` r
 gen_df = function(x_fn, y_fn, z_fn, 
                   n=1000, 
                   lb=-1,
@@ -47,12 +35,11 @@ plot_3d_lines = function(data) {
   )
   fig
 }
-
 ```
 
 ## Simple Helix
 
-```{r}
+``` r
 helix = gen_df(
   x_fn = \(t) cos(t),
   y_fn = \(t) sin(t),
@@ -60,12 +47,13 @@ helix = gen_df(
   lb=-8, ub=8, n = 2000
 )
 plot_3d_lines(helix)
-
 ```
+
+![](space_curves_files/figure-commonmark/unnamed-chunk-3-1.png)
 
 ## Twisted Cubic
 
-```{r}
+``` r
 twisted_cubic = gen_df(
   x_fn = \(t) return(t),
   y_fn = \(t) return(t**2),
@@ -73,12 +61,13 @@ twisted_cubic = gen_df(
   lb = -5, ub = 5, n = 2000
 )
 plot_3d_lines(twisted_cubic)
-
 ```
+
+![](space_curves_files/figure-commonmark/unnamed-chunk-4-1.png)
 
 ## Toroidal Spiral
 
-```{r}
+``` r
 toroidal_spiral = function(coef_1, coef_2) {
   gen_df(
     x_fn = \(t) (coef_1 + sin(coef_2*t))*cos(t),
@@ -89,17 +78,25 @@ toroidal_spiral = function(coef_1, coef_2) {
 }
 
 plot_3d_lines(toroidal_spiral(5, 20))
+```
 
+![](space_curves_files/figure-commonmark/unnamed-chunk-5-1.png)
 
+``` r
 plot_3d_lines(toroidal_spiral(1, 50))
+```
 
+![](space_curves_files/figure-commonmark/unnamed-chunk-5-2.png)
 
+``` r
 plot_3d_lines(toroidal_spiral(3, pi))
 ```
 
+![](space_curves_files/figure-commonmark/unnamed-chunk-5-3.png)
+
 ## Trefoil Knot
 
-```{r}
+``` r
 trefoil_knot = function(coef_1, coef_2) {
   gen_df(
     x_fn = \(t) (coef_1 + cos(coef_2*t))*cos(t),
@@ -110,10 +107,18 @@ trefoil_knot = function(coef_1, coef_2) {
 }
 
 plot_3d_lines(trefoil_knot(2, 1.5))
+```
 
+![](space_curves_files/figure-commonmark/unnamed-chunk-6-1.png)
 
+``` r
 plot_3d_lines(trefoil_knot(1, 10))
+```
 
+![](space_curves_files/figure-commonmark/unnamed-chunk-6-2.png)
 
+``` r
 plot_3d_lines(trefoil_knot(pi, pi))
 ```
+
+![](space_curves_files/figure-commonmark/unnamed-chunk-6-3.png)
