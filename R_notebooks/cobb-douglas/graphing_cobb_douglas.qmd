@@ -4,6 +4,7 @@ author: "Hans Elliott"
 format: html
 editor: visual
 ---
+
 `r Sys.Date()`
 
 ```{r}
@@ -15,7 +16,6 @@ pacman::p_load(plotly, ggplot2)
 
 # https://web.holycross.edu/RePEc/eej/Archive/Volume31/V31N3P427_445.pdf
 ```
-
 
 ```{r}
 # Original Dataset from Cobb-Doublas 1928
@@ -46,6 +46,7 @@ table = "Year Output Labor Capital
 1921 179 147 417
 1922 240 161 431
 "
+# parse the table into dataframe format
 table = strsplit(table, split="\n")[[1]]
 data_1928 = NULL
 for (line in table) {
@@ -59,8 +60,6 @@ for (line in table) {
 }
 ```
 
-
-
 ```{r}
 cobb_douglas = function(L, K, A=1.01, alpha=0.75) {
   # P(L, K) = A * L^(alpha) * K^(1-alpha)
@@ -73,9 +72,9 @@ cobb_douglas = function(L, K, A=1.01, alpha=0.75) {
 }
 ```
 
+## Implied Total Factor Productivity
 
 ```{r}
-# Implied Total Factor Productivity
 factor_productivity = function(P, L, K, alpha=0.75) {
   # A = P / [L^(alpha) * K^(1-alpha)]
   return(
@@ -103,10 +102,40 @@ ggplot(data_1928) +
 
 ```
 
-
+## Re-Estimating Alpha
 
 ```{r}
-# Plotting the Cobb-Douglas Function
+# Originally, Cobb and Douglas did not account for technical progress
+# ln(Q_t) = c + alpha * ln(L_t) + beta * ln(K_t)
+m1 = lm(log(output) ~ log(labor) + log(capital), data=data_1928)
+summary(m1)
+
+
+# Their original estimate of alpha ~= 0.751 came from estimating in "per-capita" terms,
+# ie, quantity and capital are expressed in terms of workers:
+# ln(Q_t / L_t) = (alpha + beta - 1)*ln(L_t) + beta * ln(K_t/L_t)
+m2 = lm(log(output/labor) ~ log(labor) + log(capital/labor), data=data_1928)
+summary(m2)
+
+print(paste("1 - alpha - beta =", coef(m2)["log(labor)"]))
+print(paste("alpha = 1 - beta - 0.04 =", 
+            1 - coef(m2)["log(capital/labor)"] - coef(m2)["log(labor)"] 
+))
+
+# Facing criticism, it was re-estimated with an expoential time-trend
+# ln(Q_t) = c + lambda * T + alpha * ln(L_t) + beta * ln(K_t)
+m3 = lm(log(output) ~ year**2 + log(labor) + log(capital), data=data_1928)
+summary(m3)
+
+
+```
+
+
+
+
+## Plotting the Cobb-Douglas Function
+
+```{r}
 n_dim = 300
 P = outer(0:n_dim, 0:n_dim, FUN = cobb_douglas, A = 1, alpha = 0.75)
 
@@ -117,14 +146,7 @@ plotly::plot_ly(z=~P) |>
            plot_bgcolor = "#e5ecf6")
 ```
 
-
 ```{r}
 # Isoquants
 contour(P)
 ```
-
-
-
-
-
-
